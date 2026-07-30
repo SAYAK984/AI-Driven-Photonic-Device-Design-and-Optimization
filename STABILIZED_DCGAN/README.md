@@ -1,98 +1,114 @@
 # Stabilized DCGAN — Photonic Crystal
 
-DCGAN trained on 34 photonic crystal images at 128×128 resolution using PyTorch. This is Stage 3 of the architecture progression — the first model to achieve training stability and learn meaningful photonic crystal topology on the full 34-image dataset.
+A **Deep Convolutional Generative Adversarial Network (DCGAN)** trained on **34 grayscale photonic crystal images** at a resolution of **128×128** using **PyTorch**. This represents **Stage 3** in the architecture progression and is the first model to achieve stable training while successfully learning the fundamental topology of photonic crystal structures from the complete dataset.
 
 ---
 
-## Why This Exists
+## Project Motivation
 
-`DCGAN_STAGE_1` followed a paper specification (20×20, 22 images) and still showed mode collapse with blurry continuous outputs. The resolution was too low to capture the geometric structure of real photonic crystal images.
+The previous implementation (**DCGAN_STAGE_1**) closely followed the original DCGAN paper by training on **22 images** at a **20×20 resolution**. Although this approach reduced the severity of mode collapse compared to the Vanilla GAN, it still produced blurry outputs with limited structural diversity. More importantly, the low image resolution was insufficient to preserve the intricate geometric characteristics of photonic crystal structures.
 
-This stage moves away from the paper entirely. The goal is to push a properly stabilised DCGAN as far as it can go on the real 34-image dataset at a resolution that is actually meaningful — 128×128.
-
----
-
-## What Changed from DCGAN Stage 1
-
-| Change | Reason |
-|---|---|
-| Resolution: 20×20 -> 128×128 | 20×20 cannot represent photonic crystal geometry meaningfully |
-| Dataset: 22 images -> 34 images | Full dataset used |
-| Added `spectral_norm` to all Discriminator Conv2d layers | Constrains D's Lipschitz constant, prevents D from dominating |
-| Added `MinibatchStdDev` layer to Discriminator | Penalises mode collapse by making D aware of batch diversity |
-| DCGAN weight initialisation (Normal, mean=0, std=0.02) | Stabilises early training dynamics |
-| Label smoothing (real labels = 0.9 instead of 1.0) | Prevents D from becoming overconfident on real images |
-| BCEWithLogitsLoss | Numerically stable, combines sigmoid and BCE in one operation |
+To overcome these limitations, this stage abandons the original paper configuration and focuses on training a significantly more stable DCGAN using the **entire 34-image dataset** at a substantially higher resolution of **128×128**, allowing the model to capture meaningful spatial information.
 
 ---
 
-## Architecture
+## Improvements over DCGAN Stage 1
+
+| Modification                                                                | Purpose                                                                                                                                   |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Image Resolution:** 20×20 → 128×128                                       | Enables the model to preserve the geometric details of photonic crystal structures.                                                       |
+| **Training Dataset:** 22 → 34 Images                                        | Utilizes the complete dataset to improve generalization.                                                                                  |
+| **Spectral Normalization** applied to every discriminator convolution layer | Restricts the discriminator's Lipschitz constant, preventing it from overpowering the generator during training.                          |
+| **Minibatch Standard Deviation Layer**                                      | Encourages output diversity by allowing the discriminator to evaluate variation across generated samples, thereby reducing mode collapse. |
+| **DCGAN Weight Initialization** (Normal distribution, mean = 0, std = 0.02) | Improves training stability during the initial optimization stages.                                                                       |
+| **Label Smoothing** (Real labels = 0.9)                                     | Prevents the discriminator from becoming excessively confident on real samples, leading to more balanced adversarial learning.            |
+| **BCEWithLogitsLoss**                                                       | Provides a numerically stable implementation by combining the sigmoid activation and binary cross-entropy loss into a single operation.   |
+
+---
+
+## Network Architecture
 
 ### Generator
-Input: noise vector (NOISE_DIM=100)
 
+**Input:** Random latent vector (`NOISE_DIM = 100`)
+
+```text
+ConvTranspose2d : 100 → 512 | 4×4 | Stride 1 | BatchNorm | ReLU
+ConvTranspose2d : 512 → 256 | 4×4 | Stride 2 | BatchNorm | ReLU
+ConvTranspose2d : 256 → 128 | 4×4 | Stride 2 | BatchNorm | ReLU
+ConvTranspose2d : 128 →  64 | 4×4 | Stride 2 | BatchNorm | ReLU
+ConvTranspose2d :  64 →   1 | 4×4 | Stride 2 | Tanh
 ```
-ConvTranspose2d: 100 -> 512, 4x4, stride 1  | BatchNorm2d | ReLU
-ConvTranspose2d: 512 -> 256, 4x4, stride 2  | BatchNorm2d | ReLU
-ConvTranspose2d: 256 -> 128, 4x4, stride 2  | BatchNorm2d | ReLU
-ConvTranspose2d: 128 ->  64, 4x4, stride 2  | BatchNorm2d | ReLU
-ConvTranspose2d:  64 ->   1, 4x4, stride 2  | Tanh
-Output: (1, 128, 128)
-```
+
+**Output:** `(1, 128, 128)`
+
+---
 
 ### Discriminator
-Input: (1, 128, 128)
 
+**Input:** `(1, 128, 128)`
+
+```text
+SpectralNorm(Conv2d) :   1 →  32 | 4×4 | Stride 2 | LeakyReLU(0.2)
+SpectralNorm(Conv2d) :  32 →  64 | 4×4 | Stride 2 | LeakyReLU(0.2)
+SpectralNorm(Conv2d) :  64 → 128 | 4×4 | Stride 2 | LeakyReLU(0.2)
+SpectralNorm(Conv2d) : 128 → 256 | 4×4 | Stride 2 | LeakyReLU(0.2)
+MinibatchStdDev
+SpectralNorm(Conv2d) : 257 →   1 | 4×4 | Stride 1
 ```
-spectral_norm(Conv2d):  1 ->  32, 4x4, stride 2 | LeakyReLU(0.2)
-spectral_norm(Conv2d): 32 ->  64, 4x4, stride 2 | LeakyReLU(0.2)
-spectral_norm(Conv2d): 64 -> 128, 4x4, stride 2 | LeakyReLU(0.2)
-spectral_norm(Conv2d):128 -> 256, 4x4, stride 2 | LeakyReLU(0.2)
-MinibatchStdDev()
-spectral_norm(Conv2d):257 ->   1, 4x4, stride 1
-Output: scalar
-```
+
+**Output:** Single scalar prediction.
 
 ---
 
-## Training Config
+## Training Configuration
 
-| Hyperparameter | Value |
-|---|---|
-| Image size | 128×128 |
-| Channels | 1 (grayscale) |
-| NOISE_DIM | 100 |
-| BATCH_SIZE | 8 |
-| EPOCHS | 300 |
-| LR | 2e-4 |
-| FEATURE_D / FEATURE_G | 32 |
-| Optimizer | Adam, betas=(0.5, 0.999) |
-| Loss | BCEWithLogitsLoss |
-| Label smoothing | Real labels = 0.9 |
-
----
-
-## Results
-
-Training stabilised successfully. Discriminator and Generator losses converged to Nash equilibrium (~0.693) and held there through 300 epochs. Zero mode collapse.
-
-The model learned:
-- Periodic hole lattice structure
-- Waveguide defect channel geometry (diagonal line of missing holes)
-- Approximate silicon-air contrast
-
-**Remaining gap:** Outputs are blurry and low contrast compared to real images. Holes blend into the background — edges are not sharp. This is DCGAN's ceiling with 34 images. The distribution-matching problem requires a better loss function.
-
--> Motivated migration to WGAN-GP.
-
-![Generated Output](assets/output.png)
+| Hyperparameter                           | Value                           |
+| ---------------------------------------- | ------------------------------- |
+| Image Resolution                         | 128 × 128                       |
+| Channels                                 | 1 (Grayscale)                   |
+| Noise Dimension                          | 100                             |
+| Batch Size                               | 8                               |
+| Training Epochs                          | 300                             |
+| Learning Rate                            | 2 × 10⁻⁴                        |
+| Feature Maps (Generator / Discriminator) | 32                              |
+| Optimizer                                | Adam (`β₁ = 0.5`, `β₂ = 0.999`) |
+| Loss Function                            | BCEWithLogitsLoss               |
+| Label Smoothing                          | Real Labels = 0.9               |
 
 ---
 
-## What This Motivates
+## Experimental Results
 
-BCEWithLogitsLoss measures binary cross-entropy — it tells D to output 0 or 1, which causes training instability when D becomes confident. It also gives G vanishing gradients when D is winning.
+Training remained stable throughout the complete **300 epochs**, with both the Generator and Discriminator losses converging toward the expected **Nash Equilibrium (≈0.693)** and maintaining that equilibrium consistently. Unlike the previous architectures, **no mode collapse** was observed during training.
 
-The fix is Wasserstein distance — a smoother loss that measures how far apart two distributions are rather than just classifying them. That is WGAN-GP.
+The generator successfully learned several important structural characteristics of the photonic crystal dataset, including:
 
--> See `V0_WGAN-GP/` for the next stage.
+* Periodic silicon-air hole lattice.
+* Diagonal waveguide defect channel.
+* Approximate silicon-air intensity distribution.
+
+Despite these improvements, the generated images still exhibit relatively **low contrast** and **blurred hole boundaries** when compared with real Lumerical FDTD simulation images. Although the overall topology is preserved, the model struggles to reproduce fine structural details, indicating the practical performance limit of a conventional DCGAN when trained on only **34 samples**.
+
+These observations suggest that while the architecture successfully captures global structural information, it lacks an effective mechanism for accurately matching the underlying data distribution.
+
+This limitation directly motivated the transition to a **Wasserstein GAN with Gradient Penalty (WGAN-GP)**.
+
+---
+
+## Generated Output
+
+*(Insert generated sample images here.)*
+
+---
+
+## Motivation for the Next Architecture
+
+The **BCEWithLogitsLoss** objective treats the discriminator as a binary classifier, encouraging predictions that approach either **0** or **1**. As training progresses and the discriminator becomes increasingly confident, the generator receives progressively weaker gradients, making optimization difficult and reducing image quality.
+
+To overcome this limitation, the subsequent architecture adopts the **Wasserstein Distance**, which measures the distance between the real and generated data distributions rather than performing binary classification. This formulation provides smoother gradients, improves optimization stability, and enables more effective learning under extremely limited data conditions.
+
+Consequently, the next stage of this research transitions to **WGAN-GP**, where the Gradient Penalty further enforces the Lipschitz constraint required for stable Wasserstein optimization.
+
+➡ **See `V0_WGAN-GP/` for the next stage of the architecture progression.**
+
